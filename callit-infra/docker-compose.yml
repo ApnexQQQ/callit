@@ -1,0 +1,130 @@
+# CallIt - Local Development Docker Compose
+# Services: PostgreSQL, Redis, Backend (FastAPI), Frontend (React)
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: callit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-callit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-callit_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-callit}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callit} -d ${POSTGRES_DB:-callit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - callit-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: callit-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-callit_redis_pass}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - callit-network
+
+  # Backend API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: callit-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-callit}:${POSTGRES_PASSWORD:-callit_dev_password}@postgres:5432/${POSTGRES_DB:-callit}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-callit_redis_pass}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./backend:/app:ro
+      - ./backend/migrations:/app/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - callit-network
+
+  # Frontend (React/Vite)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: callit-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+      - VITE_WS_URL=${VITE_WS_URL:-ws://localhost:8000}
+      - VITE_APP_NAME=${VITE_APP_NAME:-CallIt}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0 --port 3000
+    networks:
+      - callit-network
+
+  # Database Migrations Runner
+  migrations:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: callit-migrations
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-callit}:${POSTGRES_PASSWORD:-callit_dev_password}@postgres:5432/${POSTGRES_DB:-callit}
+    volumes:
+      - ./backend:/app:ro
+      - ./backend/migrations:/app/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Running database migrations...' &&
+        alembic upgrade head &&
+        echo 'Migrations completed!'
+      "
+    networks:
+      - callit-network
+    profiles:
+      - migrations
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  callit-network:
+    driver: bridge

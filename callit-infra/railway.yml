@@ -1,0 +1,89 @@
+# =============================================================================
+# CallIt - Railway Deployment Configuration
+# This file defines all services for Railway deployment
+# =============================================================================
+
+# PostgreSQL Database (Managed by Railway)
+databases:
+  - name: callit-postgres
+    type: postgresql
+    version: 16
+
+# Redis Cache (Managed by Railway)
+  - name: callit-redis
+    type: redis
+    version: 7
+
+# Services
+services:
+  # Backend API Service
+  - name: callit-backend
+    source: ./backend
+    build:
+      builder: DOCKERFILE
+      dockerfilePath: Dockerfile
+    ports:
+      - port: 8000
+        httpSupport: true
+    healthcheck:
+      path: /health
+      port: 8000
+      interval: 30
+      timeout: 10
+      unhealthyThreshold: 3
+    environment:
+      - name: DATABASE_URL
+        value: ${{Postgres.DATABASE_URL}}
+      - name: REDIS_URL
+        value: ${{Redis.REDIS_URL}}
+      - name: SECRET_KEY
+        value: ${{SECRET_KEY}}
+      - name: DEBUG
+        value: "false"
+      - name: LOG_LEVEL
+        value: "info"
+      - name: CORS_ORIGINS
+        value: ${{CORS_ORIGINS}}
+      - name: JWT_ALGORITHM
+        value: HS256
+      - name: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - name: JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+    dependsOn:
+      - callit-postgres
+      - callit-redis
+
+  # Frontend Service
+  - name: callit-frontend
+    source: ./frontend
+    build:
+      builder: DOCKERFILE
+      dockerfilePath: Dockerfile
+    ports:
+      - port: 3000
+        httpSupport: true
+    environment:
+      - name: VITE_API_URL
+        value: ${{BACKEND_URL}}
+      - name: VITE_WS_URL
+        value: ${{BACKEND_WS_URL}}
+      - name: VITE_APP_NAME
+        value: CallIt
+    dependsOn:
+      - callit-backend
+
+  # Migration Job (runs on deploy)
+  - name: callit-migrations
+    source: ./backend
+    build:
+      builder: DOCKERFILE
+      dockerfilePath: Dockerfile.migrations
+    environment:
+      - name: DATABASE_URL
+        value: ${{Postgres.DATABASE_URL}}
+    dependsOn:
+      - callit-postgres
+    deploy:
+      cron:
+        schedule: "0 0 * * *"  # Run migrations daily, or use pre-deploy hook

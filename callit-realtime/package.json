@@ -1,0 +1,23 @@
+{
+  "name": "callit-realtime",
+  "version": "1.0.0",
+  "description": "WebSocket infrastructure for CallIt social app - real-time feeds, comments, notifications, and presence",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node examples/test-client.js",
+    "test:client": "node examples/test-client.js"
+  },
+  "keywords": ["websocket", "realtime", "socket.io", "social", "presence", "notifications"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "redis": "^5.12.1",
+    "socket.io": "^4.8.3",
+    "uuid": "^14.0.0"
+  }
+}
